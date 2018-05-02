@@ -20,7 +20,7 @@ namespace Wyhb.Joe.Tools
         /// <typeparam name="T">T</typeparam>
         /// <param name="classList"></param>
         /// <returns></returns>
-        public static DataTable ToDataTable<T>(List<T> classList)
+        public static DataTable ToDataTable<T>(List<T> clazzList)
         {
             var props = TypeDescriptor.GetProperties(typeof(T));
             var dt = new DataTable();
@@ -30,7 +30,7 @@ namespace Wyhb.Joe.Tools
             }
             var values = new object[props.Count].ToList();
 
-            classList.ToList().ForEach(item =>
+            clazzList.ToList().ForEach(item =>
             {
                 values.ForEach(value =>
                 {

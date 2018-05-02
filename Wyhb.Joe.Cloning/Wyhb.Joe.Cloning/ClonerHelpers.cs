@@ -1,12 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 
 namespace Wyhb.Joe.Cloning
 {
     /// <summary>Contains helper methods for the cloners</summary>
-    internal static class ClonerHelpers
+    public static class ClonerHelpers
     {
+        #region GetFieldInfosIncludingBaseClasses
+
         /// <summary>
         ///   Returns all the fields of a type, working around a weird reflection issue
         ///   where explicitly declared fields in base classes are returned, but not
@@ -17,31 +20,25 @@ namespace Wyhb.Joe.Cloning
         /// <returns>All of the type's fields, including its base types</returns>
         public static FieldInfo[] GetFieldInfosIncludingBaseClasses(Type type, BindingFlags bindingFlags)
         {
-            FieldInfo[] fieldInfos = type.GetFields(bindingFlags);
+            var fieldInfos = type.GetFields(bindingFlags);
 
-            // If this class doesn't have a base, don't waste any time
             if (type.BaseType == typeof(object))
             {
                 return fieldInfos;
             }
             else
-            { // Otherwise, collect all types up to the furthest base class
+            {
                 var fieldInfoList = new List<FieldInfo>(fieldInfos);
                 while (type.BaseType != typeof(object))
                 {
                     type = type.BaseType;
-                    fieldInfos = type.GetFields(bindingFlags);
-
-                    // Look for fields we do not have listed yet and merge them into the main list
-                    for (int index = 0; index < fieldInfos.Length; ++index)
+                    type.GetFields(bindingFlags).ToList().ForEach(f =>
                     {
                         bool found = false;
 
-                        for (int searchIndex = 0; searchIndex < fieldInfoList.Count; ++searchIndex)
+                        for (var searchIdx = 0; searchIdx < fieldInfoList.Count; ++searchIdx)
                         {
-                            bool match =
-                              (fieldInfoList[searchIndex].DeclaringType == fieldInfos[index].DeclaringType) &&
-                              (fieldInfoList[searchIndex].Name == fieldInfos[index].Name);
+                            bool match = (fieldInfoList[searchIdx].DeclaringType == f.DeclaringType) && (fieldInfoList[searchIdx].Name == f.Name);
 
                             if (match)
                             {
@@ -52,13 +49,15 @@ namespace Wyhb.Joe.Cloning
 
                         if (!found)
                         {
-                            fieldInfoList.Add(fieldInfos[index]);
+                            fieldInfoList.Add(f);
                         }
-                    }
+                    });
                 }
 
                 return fieldInfoList.ToArray();
             }
         }
+
+        #endregion GetFieldInfosIncludingBaseClasses
     }
 }

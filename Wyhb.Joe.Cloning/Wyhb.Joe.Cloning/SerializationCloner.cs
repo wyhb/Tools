@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
@@ -56,9 +57,7 @@ namespace Wyhb.Joe.Cloning
             /// <param name="context">Context </param>
             /// <param name="selector"></param>
             /// <returns></returns>
-            public ISerializationSurrogate GetSurrogate(
-              Type type, StreamingContext context, out ISurrogateSelector selector
-            )
+            public ISerializationSurrogate GetSurrogate(Type type, StreamingContext context, out ISurrogateSelector selector)
             {
                 if (type.IsPrimitive || type.IsArray || (type == typeof(string)))
                 {
@@ -99,22 +98,15 @@ namespace Wyhb.Joe.Cloning
             /// <param name="context">
             ///   Provides additional informations about the serialization process
             /// </param>
-            public void GetObjectData(
-              object objectToSerialize,
-              SerializationInfo info,
-              StreamingContext context
-            )
+            public void GetObjectData(object objectToSerialize, SerializationInfo info, StreamingContext context)
             {
-                Type originalType = objectToSerialize.GetType();
+                var originalType = objectToSerialize.GetType();
 
-                FieldInfo[] fieldInfos = ClonerHelpers.GetFieldInfosIncludingBaseClasses(
-                  originalType, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
-                );
-                for (int index = 0; index < fieldInfos.Length; ++index)
+                var fieldInfos = ClonerHelpers.GetFieldInfosIncludingBaseClasses(originalType, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                fieldInfos.ToList().ForEach(f =>
                 {
-                    FieldInfo fieldInfo = fieldInfos[index];
-                    info.AddValue(fieldInfo.Name, fieldInfo.GetValue(objectToSerialize));
-                }
+                    info.AddValue(f.Name, f.GetValue(objectToSerialize));
+                });
             }
 
             /// <summary>Reinserts saved data into a deserializd object</summary>
@@ -125,23 +117,15 @@ namespace Wyhb.Joe.Cloning
             /// </param>
             /// <param name="selector">Surrogate selector that specified this surrogate</param>
             /// <returns>The deserialized object</returns>
-            public object SetObjectData(
-              object deserializedObject,
-              SerializationInfo info,
-              StreamingContext context,
-              ISurrogateSelector selector
-            )
+            public object SetObjectData(object deserializedObject, SerializationInfo info, StreamingContext context, ISurrogateSelector selector)
             {
-                Type originalType = deserializedObject.GetType();
+                var originalType = deserializedObject.GetType();
 
-                FieldInfo[] fieldInfos = ClonerHelpers.GetFieldInfosIncludingBaseClasses(
-                  originalType, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
-                );
-                for (int index = 0; index < fieldInfos.Length; ++index)
+                var fieldInfos = ClonerHelpers.GetFieldInfosIncludingBaseClasses(originalType, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                fieldInfos.ToList().ForEach(f =>
                 {
-                    FieldInfo fieldInfo = fieldInfos[index];
-                    fieldInfo.SetValue(deserializedObject, info.GetValue(fieldInfo.Name, fieldInfo.FieldType));
-                }
+                    f.SetValue(deserializedObject, info.GetValue(f.Name, f.FieldType));
+                });
 
                 return deserializedObject;
             }
@@ -222,18 +206,18 @@ namespace Wyhb.Joe.Cloning
 
         #endregion class PropertySerializationSurrogate
 
+        #region SerializationCloner
+
         /// <summary>Initializes the static members of the serialization-based cloner</summary>
         static SerializationCloner()
         {
-            fieldBasedFormatter = new BinaryFormatter(
-              new StaticSurrogateSelector(new FieldSerializationSurrogate()),
-              new StreamingContext(StreamingContextStates.All)
-            );
-            propertyBasedFormatter = new BinaryFormatter(
-              new StaticSurrogateSelector(new PropertySerializationSurrogate()),
-              new StreamingContext(StreamingContextStates.All)
-            );
+            FieldBasedFormatter = new BinaryFormatter(new StaticSurrogateSelector(new FieldSerializationSurrogate()), new StreamingContext(StreamingContextStates.All));
+            PropertyBasedFormatter = new BinaryFormatter(new StaticSurrogateSelector(new PropertySerializationSurrogate()), new StreamingContext(StreamingContextStates.All));
         }
+
+        #endregion SerializationCloner
+
+        #region DeepFieldClone
 
         /// <summary>
         ///   Creates a deep clone of the specified object, also creating clones of all
@@ -253,11 +237,15 @@ namespace Wyhb.Joe.Cloning
             }
             using (var memoryStream = new MemoryStream())
             {
-                fieldBasedFormatter.Serialize(memoryStream, objectToClone);
+                FieldBasedFormatter.Serialize(memoryStream, objectToClone);
                 memoryStream.Position = 0;
-                return (TCloned)fieldBasedFormatter.Deserialize(memoryStream);
+                return (TCloned)FieldBasedFormatter.Deserialize(memoryStream);
             }
         }
+
+        #endregion DeepFieldClone
+
+        #region DeepPropertyClone
 
         /// <summary>
         ///   Creates a deep clone of the specified object, also creating clones of all
@@ -277,11 +265,15 @@ namespace Wyhb.Joe.Cloning
             }
             using (var memoryStream = new MemoryStream())
             {
-                propertyBasedFormatter.Serialize(memoryStream, objectToClone);
+                PropertyBasedFormatter.Serialize(memoryStream, objectToClone);
                 memoryStream.Position = 0;
-                return (TCloned)propertyBasedFormatter.Deserialize(memoryStream);
+                return (TCloned)PropertyBasedFormatter.Deserialize(memoryStream);
             }
         }
+
+        #endregion DeepPropertyClone
+
+        #region ICloneFactory.ShallowFieldClone
 
         /// <summary>
         ///   Creates a shallow clone of the specified object, reusing any referenced objects
@@ -294,6 +286,10 @@ namespace Wyhb.Joe.Cloning
             throw new NotSupportedException("The serialization cloner cannot create shallow clones");
         }
 
+        #endregion ICloneFactory.ShallowFieldClone
+
+        #region ICloneFactory.ShallowPropertyClone
+
         /// <summary>
         ///   Creates a shallow clone of the specified object, reusing any referenced objects
         /// </summary>
@@ -304,6 +300,10 @@ namespace Wyhb.Joe.Cloning
         {
             throw new NotSupportedException("The serialization cloner cannot create shallow clones");
         }
+
+        #endregion ICloneFactory.ShallowPropertyClone
+
+        #region ICloneFactory.DeepFieldClone
 
         /// <summary>
         ///   Creates a deep clone of the specified object, also creating clones of all
@@ -317,6 +317,10 @@ namespace Wyhb.Joe.Cloning
             return SerializationCloner.DeepFieldClone<TCloned>(objectToClone);
         }
 
+        #endregion ICloneFactory.DeepFieldClone
+
+        #region ICloneFactory.DeepPropertyClone
+
         /// <summary>
         ///   Creates a deep clone of the specified object, also creating clones of all
         ///   child objects being referenced
@@ -329,10 +333,20 @@ namespace Wyhb.Joe.Cloning
             return SerializationCloner.DeepPropertyClone<TCloned>(objectToClone);
         }
 
+        #endregion ICloneFactory.DeepPropertyClone
+
+        #region FieldBasedFormatter
+
         /// <summary>Serializes objects by storing their fields</summary>
-        private static BinaryFormatter fieldBasedFormatter;
+        private static BinaryFormatter FieldBasedFormatter;
+
+        #endregion FieldBasedFormatter
+
+        #region PropertyBasedFormatter
 
         /// <summary>Serializes objects by storing their properties</summary>
-        private static BinaryFormatter propertyBasedFormatter;
+        private static BinaryFormatter PropertyBasedFormatter;
+
+        #endregion PropertyBasedFormatter
     }
 }

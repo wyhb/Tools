@@ -6,7 +6,7 @@ using Wyhb.Joe.Common;
 
 namespace Wyhb.Joe.Jenkins
 {
-    public class Plugins
+    public static class Plugins
     {
         private const string VB_EXTENSION = ".vb";
         private const string ASSEMBLY_VERSION = "AssemblyVersion";
@@ -18,6 +18,8 @@ namespace Wyhb.Joe.Jenkins
         private const string ASSEMBLY_FILE = "*AssemblyInfo.*";
         private const string VERSION_0000 = "0000";
         private const string STR_0 = "0";
+
+        #region ChgAssemblyVersion
 
         public static void ChgAssemblyVersion(string workspace, string version)
         {
@@ -35,12 +37,8 @@ namespace Wyhb.Joe.Jenkins
                          using (var reader = new StreamReader(file))
                          {
                              var lineLst = reader.ReadToEnd().Replace(Const.STR_CRLF, Const.STR_LF).Split(Const.CHAR_LF).ToList();
-                             //var a = lineLst.Where(line => assemblyLst.Any(assembly => line.StartsWith(assembly)) && chgAssemblyLst.Any(chgAssembly => line.Contains(chgAssembly))).ToList();
-                             //lineLst.Where(line => assemblyLst.Any(assembly => line.StartsWith(assembly)) && chgAssemblyLst.Any(chgAssembly => line.Contains(chgAssembly))).ToList().Select(line =>
                              lineLst.Select(line =>
                              {
-                                 //if (assemblyLst.Any(assembly => line.StartsWith(assembly)) && chgAssemblyLst.Any(chgAssembly => line.Contains(chgAssembly)))
-                                 //{
                                  if (assemblyLst.Contains(line))
                                  {
                                      var currentVer = line.Substring(line.IndexOf(Const.STR_PARENTHESES_L) + Const.NUM_2, line.LastIndexOf(Const.STR_PARENTHESES_R) - line.IndexOf(Const.STR_PARENTHESES_L) - Const.NUM_3);
@@ -48,12 +46,13 @@ namespace Wyhb.Joe.Jenkins
                                      line = line.Replace(currentVer, string.Join(Const.STR_DOT, currentVerLst.Zip(setVerLst, (ver, setVer) => ver + setVer).ToList()));
                                  }
                                  return line;
-                                 //}
                              });
                          }
                      });
                 }
             }
         }
+
+        #endregion ChgAssemblyVersion
     }
 }

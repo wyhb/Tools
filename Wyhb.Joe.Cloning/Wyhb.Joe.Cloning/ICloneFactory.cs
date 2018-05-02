@@ -3,6 +3,8 @@
     /// <summary>Constructs new objects by cloning existing objects</summary>
     public interface ICloneFactory
     {
+        #region ShallowFieldClone
+
         /// <summary>
         ///   Creates a shallow clone of the specified object, reusing any referenced objects
         /// </summary>
@@ -15,6 +17,10 @@
         ///   a default constructor.
         /// </remarks>
         TCloned ShallowFieldClone<TCloned>(TCloned objectToClone);
+
+        #endregion ShallowFieldClone
+
+        #region ShallowPropertyClone
 
         /// <summary>
         ///   Creates a shallow clone of the specified object, reusing any referenced objects
@@ -37,6 +43,10 @@
         /// </remarks>
         TCloned ShallowPropertyClone<TCloned>(TCloned objectToClone);
 
+        #endregion ShallowPropertyClone
+
+        #region DeepFieldClone
+
         /// <summary>
         ///   Creates a deep clone of the specified object, also creating clones of all
         ///   child objects being referenced
@@ -50,6 +60,10 @@
         ///   a default constructor.
         /// </remarks>
         TCloned DeepFieldClone<TCloned>(TCloned objectToClone);
+
+        #endregion DeepFieldClone
+
+        #region DeepPropertyClone
 
         /// <summary>
         ///   Creates a deep clone of the specified object, also creating clones of all
@@ -72,5 +86,7 @@
         ///   </para>
         /// </remarks>
         TCloned DeepPropertyClone<TCloned>(TCloned objectToClone);
+
+        #endregion DeepPropertyClone
     }
 }

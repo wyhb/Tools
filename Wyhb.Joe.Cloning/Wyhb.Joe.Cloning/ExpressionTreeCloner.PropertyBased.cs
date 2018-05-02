@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -7,6 +8,8 @@ namespace Wyhb.Joe.Cloning
 {
     partial class ExpressionTreeCloner : ICloneFactory
     {
+        #region CreateDeepPropertyBasedCloner
+
         /// <summary>Compiles a method that creates a deep clone of an object</summary>
         /// <param name="clonedType">Type for which a clone method will be created</param>
         /// <returns>A method that clones an object of the provided type</returns>
@@ -22,78 +25,49 @@ namespace Wyhb.Joe.Cloning
         ///     be null) without any null check whatsoever.
         ///   </para>
         /// </remarks>
-        private static Func<object, object> createDeepPropertyBasedCloner(Type clonedType)
+        private static Func<object, object> CreateDeepPropertyBasedCloner(Type clonedType)
         {
-            ParameterExpression original = Expression.Parameter(typeof(object), "original");
+            var original = Expression.Parameter(typeof(object), "original");
 
             var transferExpressions = new List<Expression>();
             var variables = new List<ParameterExpression>();
 
             if (clonedType.IsPrimitive || (clonedType == typeof(string)))
             {
-                // Primitives and strings are copied on direct assignment
                 transferExpressions.Add(original);
             }
             else if (clonedType.IsArray)
             {
-                // Arrays need to be cloned element-by-element
-                Type elementType = clonedType.GetElementType();
+                var elementType = clonedType.GetElementType();
 
                 if (elementType.IsPrimitive || (elementType == typeof(string)))
                 {
-                    // For primitive arrays, the Array.Clone() method is sufficient
-                    transferExpressions.Add(
-                      generatePropertyBasedPrimitiveArrayTransferExpressions(
-                        clonedType, original, variables, transferExpressions
-                      )
-                    );
+                    transferExpressions.Add(GeneratePropertyBasedPrimitiveArrayTransferExpressions(clonedType, original, variables, transferExpressions));
                 }
                 else
                 {
-                    // To access the properties of the original type, we need it to be of the actual
-                    // type instead of an object, so perform a downcast
-                    ParameterExpression typedOriginal = Expression.Variable(clonedType);
+                    var typedOriginal = Expression.Variable(clonedType);
                     variables.Add(typedOriginal);
-                    transferExpressions.Add(
-                      Expression.Assign(typedOriginal, Expression.Convert(original, clonedType))
-                    );
+                    transferExpressions.Add(Expression.Assign(typedOriginal, Expression.Convert(original, clonedType)));
 
-                    // Arrays of complex types require manual cloning
-                    transferExpressions.Add(
-                      generatePropertyBasedComplexArrayTransferExpressions(
-                        clonedType, typedOriginal, variables, transferExpressions
-                      )
-                    );
+                    transferExpressions.Add(GeneratePropertyBasedComplexArrayTransferExpressions(clonedType, typedOriginal, variables, transferExpressions));
                 }
             }
             else
             {
-                // We need a variable to hold the clone because due to the assignments it
-                // won't be last in the block when we're finished
-                ParameterExpression clone = Expression.Variable(clonedType);
+                var clone = Expression.Variable(clonedType);
                 variables.Add(clone);
 
-                // Give it a new instance of the type being cloned
                 transferExpressions.Add(Expression.Assign(clone, Expression.New(clonedType)));
 
-                // To access the properties of the original type, we need it to be of the actual
-                // type instead of an object, so perform a downcast
-                ParameterExpression typedOriginal = Expression.Variable(clonedType);
-                variables.Add(typedOriginal);
-                transferExpressions.Add(
-                  Expression.Assign(typedOriginal, Expression.Convert(original, clonedType))
-                );
+                var typedOriginal = Expression.Variable(clonedType);
+                variables.Add(typedOriginal); transferExpressions.Add(Expression.Assign(typedOriginal, Expression.Convert(original, clonedType)));
 
-                // Generate the expressions required to transfer the type property by property
-                generatePropertyBasedComplexTypeTransferExpressions(
-                  clonedType, typedOriginal, clone, variables, transferExpressions
-                );
+                GeneratePropertyBasedComplexTypeTransferExpressions(clonedType, typedOriginal, clone, variables, transferExpressions);
 
-                // Make sure the clone is the last thing in the block to set the return value
                 transferExpressions.Add(clone);
             }
 
-            // Turn all transfer expressions into a single block if necessary
             Expression resultExpression;
             if ((transferExpressions.Count == 1) && (variables.Count == 0))
             {
@@ -104,7 +78,6 @@ namespace Wyhb.Joe.Cloning
                 resultExpression = Expression.Block(variables, transferExpressions);
             }
 
-            // Value types require manual boxing
             if (clonedType.IsValueType)
             {
                 resultExpression = Expression.Convert(resultExpression, typeof(object));
@@ -112,6 +85,10 @@ namespace Wyhb.Joe.Cloning
 
             return Expression.Lambda<Func<object, object>>(resultExpression, original).Compile();
         }
+
+        #endregion CreateDeepPropertyBasedCloner
+
+        #region CreateShallowPropertyBasedCloner
 
         /// <summary>Compiles a method that creates a deep clone of an object</summary>
         /// <param name="clonedType">Type for which a clone method will be created</param>
@@ -128,51 +105,36 @@ namespace Wyhb.Joe.Cloning
         ///     be null) without any null check whatsoever.
         ///   </para>
         /// </remarks>
-        private static Func<object, object> createShallowPropertyBasedCloner(Type clonedType)
+        private static Func<object, object> CreateShallowPropertyBasedCloner(Type clonedType)
         {
-            ParameterExpression original = Expression.Parameter(typeof(object), "original");
+            var original = Expression.Parameter(typeof(object), "original");
 
             var transferExpressions = new List<Expression>();
             var variables = new List<ParameterExpression>();
 
             if (clonedType.IsPrimitive || (clonedType == typeof(string)))
             {
-                // Primitives and strings are copied on direct assignment
                 transferExpressions.Add(original);
             }
             else if (clonedType.IsArray)
             {
-                transferExpressions.Add(
-                  generatePropertyBasedPrimitiveArrayTransferExpressions(
-                    clonedType, original, variables, transferExpressions
-                  )
-                );
+                transferExpressions.Add(GeneratePropertyBasedPrimitiveArrayTransferExpressions(clonedType, original, variables, transferExpressions));
             }
             else
             {
-                // We need a variable to hold the clone because due to the assignments it
-                // won't be last in the block when we're finished
-                ParameterExpression clone = Expression.Variable(clonedType);
+                var clone = Expression.Variable(clonedType);
                 variables.Add(clone);
                 transferExpressions.Add(Expression.Assign(clone, Expression.New(clonedType)));
 
-                // To access the properties of the original type, we need it to be of the actual
-                // type instead of an object, so perform a downcast
-                ParameterExpression typedOriginal = Expression.Variable(clonedType);
+                var typedOriginal = Expression.Variable(clonedType);
                 variables.Add(typedOriginal);
-                transferExpressions.Add(
-                  Expression.Assign(typedOriginal, Expression.Convert(original, clonedType))
-                );
+                transferExpressions.Add(Expression.Assign(typedOriginal, Expression.Convert(original, clonedType)));
 
-                generateShallowPropertyBasedComplexCloneExpressions(
-                  clonedType, typedOriginal, clone, transferExpressions, variables
-                );
+                GenerateShallowPropertyBasedComplexCloneExpressions(clonedType, typedOriginal, clone, transferExpressions, variables);
 
-                // Make sure the clone is the last thing in the block to set the return value
                 transferExpressions.Add(clone);
             }
 
-            // Turn all transfer expressions into a single block if necessary
             Expression resultExpression;
             if ((transferExpressions.Count == 1) && (variables.Count == 0))
             {
@@ -183,7 +145,6 @@ namespace Wyhb.Joe.Cloning
                 resultExpression = Expression.Block(variables, transferExpressions);
             }
 
-            // Value types require manual boxing
             if (clonedType.IsValueType)
             {
                 resultExpression = Expression.Convert(resultExpression, typeof(object));
@@ -191,6 +152,10 @@ namespace Wyhb.Joe.Cloning
 
             return Expression.Lambda<Func<object, object>>(resultExpression, original).Compile();
         }
+
+        #endregion CreateShallowPropertyBasedCloner
+
+        #region GenerateShallowPropertyBasedComplexCloneExpressions
 
         /// <summary>
         ///   Generates expressions to transfer the properties of a complex value type
@@ -200,71 +165,44 @@ namespace Wyhb.Joe.Cloning
         /// <param name="clone">Target instance into which the properties will be copied</param>
         /// <param name="transferExpressions">Receives the value transfer expressions</param>
         /// <param name="variables">Receives temporary variables used during the clone</param>
-        private static void generateShallowPropertyBasedComplexCloneExpressions(
-          Type clonedType,
-          ParameterExpression original,
-          ParameterExpression clone,
-          ICollection<Expression> transferExpressions,
-          ICollection<ParameterExpression> variables
-        )
+        private static void GenerateShallowPropertyBasedComplexCloneExpressions(Type clonedType, ParameterExpression original, ParameterExpression clone, ICollection<Expression> transferExpressions, ICollection<ParameterExpression> variables)
         {
-            // Enumerate all of the type's properties and generate transfer expressions for each
-            PropertyInfo[] propertyInfos = clonedType.GetProperties(
-              BindingFlags.Public | BindingFlags.NonPublic |
-              BindingFlags.Instance | BindingFlags.FlattenHierarchy
-            );
-            for (int index = 0; index < propertyInfos.Length; ++index)
+            var propertyInfos = clonedType.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+            propertyInfos.ToList().ForEach(p =>
             {
-                PropertyInfo propertyInfo = propertyInfos[index];
-                if (propertyInfo.CanRead && propertyInfo.CanWrite)
+                if (p.CanRead && p.CanWrite)
                 {
-                    Type propertyType = propertyInfo.PropertyType;
+                    var propertyType = p.PropertyType;
 
                     if (propertyType.IsPrimitive || (propertyType == typeof(string)))
                     {
-                        transferExpressions.Add(
-                          Expression.Assign(
-                            Expression.Property(clone, propertyInfo),
-                            Expression.Property(original, propertyInfo)
-                          )
-                        );
+                        transferExpressions.Add(Expression.Assign(Expression.Property(clone, p), Expression.Property(original, p)));
                     }
                     else if (propertyType.IsValueType)
                     {
-                        ParameterExpression originalProperty = Expression.Variable(propertyType);
+                        var originalProperty = Expression.Variable(propertyType);
                         variables.Add(originalProperty);
-                        transferExpressions.Add(
-                          Expression.Assign(
-                            originalProperty, Expression.Property(original, propertyInfo)
-                          )
-                        );
+                        transferExpressions.Add(Expression.Assign(originalProperty, Expression.Property(original, p)));
 
-                        ParameterExpression clonedProperty = Expression.Variable(propertyType);
+                        var clonedProperty = Expression.Variable(propertyType);
                         variables.Add(clonedProperty);
-                        transferExpressions.Add(
-                          Expression.Assign(clonedProperty, Expression.New(propertyType))
-                        );
+                        transferExpressions.Add(Expression.Assign(clonedProperty, Expression.New(propertyType)));
 
-                        generateShallowPropertyBasedComplexCloneExpressions(propertyType, originalProperty, clonedProperty, transferExpressions, variables);
+                        GenerateShallowPropertyBasedComplexCloneExpressions(propertyType, originalProperty, clonedProperty, transferExpressions, variables);
 
-                        transferExpressions.Add(
-                          Expression.Assign(
-                            Expression.Property(clone, propertyInfo), clonedProperty
-                          )
-                        );
+                        transferExpressions.Add(Expression.Assign(Expression.Property(clone, p), clonedProperty));
                     }
                     else
                     {
-                        transferExpressions.Add(
-                          Expression.Assign(
-                            Expression.Property(clone, propertyInfo),
-                            Expression.Property(original, propertyInfo)
-                          )
-                        );
+                        transferExpressions.Add(Expression.Assign(Expression.Property(clone, p), Expression.Property(original, p)));
                     }
                 }
-            }
+            });
         }
+
+        #endregion GenerateShallowPropertyBasedComplexCloneExpressions
+
+        #region GeneratePropertyBasedPrimitiveArrayTransferExpressions
 
         /// <summary>
         ///   Generates state transfer expressions to copy an array of primitive types
@@ -274,21 +212,15 @@ namespace Wyhb.Joe.Cloning
         /// <param name="variables">Receives variables used by the transfer expressions</param>
         /// <param name="transferExpressions">Receives the generated transfer expressions</param>
         /// <returns>The variable holding the cloned array</returns>
-        private static Expression generatePropertyBasedPrimitiveArrayTransferExpressions(
-          Type clonedType,
-          Expression original,
-          ICollection<ParameterExpression> variables,
-          ICollection<Expression> transferExpressions
-        )
+        private static Expression GeneratePropertyBasedPrimitiveArrayTransferExpressions(Type clonedType, Expression original, ICollection<ParameterExpression> variables, ICollection<Expression> transferExpressions)
         {
-            MethodInfo arrayCloneMethodInfo = typeof(Array).GetMethod("Clone");
-            return Expression.Convert(
-              Expression.Call(
-                Expression.Convert(original, typeof(Array)), arrayCloneMethodInfo
-              ),
-              clonedType
-            );
+            var arrayCloneMethodInfo = typeof(Array).GetMethod("Clone");
+            return Expression.Convert(Expression.Call(Expression.Convert(original, typeof(Array)), arrayCloneMethodInfo), clonedType);
         }
+
+        #endregion GeneratePropertyBasedPrimitiveArrayTransferExpressions
+
+        #region GeneratePropertyBasedComplexArrayTransferExpressions
 
         /// <summary>
         ///   Generates state transfer expressions to copy an array of complex types
@@ -298,215 +230,110 @@ namespace Wyhb.Joe.Cloning
         /// <param name="variables">Receives variables used by the transfer expressions</param>
         /// <param name="transferExpressions">Receives the generated transfer expressions</param>
         /// <returns>The variable holding the cloned array</returns>
-        private static ParameterExpression generatePropertyBasedComplexArrayTransferExpressions(
-          Type clonedType,
-          Expression original,
-          IList<ParameterExpression> variables,
-          ICollection<Expression> transferExpressions
-        )
+        private static ParameterExpression GeneratePropertyBasedComplexArrayTransferExpressions(Type clonedType, Expression original, IList<ParameterExpression> variables, ICollection<Expression> transferExpressions)
         {
-            // We need a temporary variable in order to transfer the elements of the array
-            ParameterExpression clone = Expression.Variable(clonedType);
+            var clone = Expression.Variable(clonedType);
             variables.Add(clone);
 
-            int dimensionCount = clonedType.GetArrayRank();
-            int baseVariableIndex = variables.Count;
-            Type elementType = clonedType.GetElementType();
+            var dimensionCount = clonedType.GetArrayRank();
+            var baseVariableIndex = variables.Count;
+            var elementType = clonedType.GetElementType();
 
             var lengths = new List<ParameterExpression>();
             var indexes = new List<ParameterExpression>();
             var labels = new List<LabelTarget>();
 
-            // Retrieve the length of each of the array's dimensions
-            MethodInfo arrayGetLengthMethodInfo = typeof(Array).GetMethod("GetLength");
-            for (int index = 0; index < dimensionCount; ++index)
+            var arrayGetLengthMethodInfo = typeof(Array).GetMethod("GetLength");
+            for (var idx = 0; idx < dimensionCount; ++idx)
             {
-                // Obtain the length of the array in the current dimension
                 lengths.Add(Expression.Variable(typeof(int)));
-                variables.Add(lengths[index]);
-                transferExpressions.Add(
-                  Expression.Assign(
-                    lengths[index],
-                    Expression.Call(
-                      original, arrayGetLengthMethodInfo, Expression.Constant(index)
-                    )
-                  )
-                );
+                variables.Add(lengths[idx]);
+                transferExpressions.Add(Expression.Assign(lengths[idx], Expression.Call(original, arrayGetLengthMethodInfo, Expression.Constant(idx))));
 
-                // Set up a variable to index the array in this dimension
                 indexes.Add(Expression.Variable(typeof(int)));
-                variables.Add(indexes[index]);
+                variables.Add(indexes[idx]);
 
-                // Also set up a label than can be used to break out of the dimension's
-                // transfer loop
                 labels.Add(Expression.Label());
             }
 
-            // Create a new (empty) array with the same dimensions and lengths as the original
-            transferExpressions.Add(
-              Expression.Assign(clone, Expression.NewArrayBounds(elementType, lengths))
-            );
+            transferExpressions.Add(Expression.Assign(clone, Expression.NewArrayBounds(elementType, lengths)));
 
-            // Initialize the indexer of the outer loop (indexers are initialized one up
-            // in the loops (ie. before the loop using it begins), so we have to set this
-            // one outside of the loop building code.
-            transferExpressions.Add(
-              Expression.Assign(indexes[0], Expression.Constant(0))
-            );
+            transferExpressions.Add(Expression.Assign(indexes[0], Expression.Constant(0)));
 
-            // Build the nested loops (one for each dimension) from the inside out
             Expression innerLoop = null;
-            for (int index = dimensionCount - 1; index >= 0; --index)
+            for (var idx = dimensionCount - 1; idx >= 0; --idx)
             {
                 var loopVariables = new List<ParameterExpression>();
                 var loopExpressions = new List<Expression>();
 
-                // If we reached the end of the current array dimension, break the loop
-                loopExpressions.Add(
-                  Expression.IfThen(
-                    Expression.GreaterThanOrEqual(indexes[index], lengths[index]),
-                    Expression.Break(labels[index])
-                  )
-                );
+                loopExpressions.Add(Expression.IfThen(Expression.GreaterThanOrEqual(indexes[idx], lengths[idx]), Expression.Break(labels[idx])));
 
                 if (innerLoop == null)
                 {
-                    // The innermost loop clones an actual array element
-
                     if (elementType.IsPrimitive || (elementType == typeof(string)))
                     {
-                        // Primitive array elements can be copied by simple assignment. This case
-                        // should not occur since Array.Clone() should be used instead.
-                        loopExpressions.Add(
-                          Expression.Assign(
-                            Expression.ArrayAccess(clone, indexes),
-                            Expression.ArrayAccess(original, indexes)
-                          )
-                        );
+                        loopExpressions.Add(Expression.Assign(Expression.ArrayAccess(clone, indexes), Expression.ArrayAccess(original, indexes)));
                     }
                     else if (elementType.IsValueType)
                     {
-                        // Arrays of complex value types can be transferred by assigning all properties
-                        // of the source array element to the destination array element (cloning
-                        // any nested reference types appropriately)
-                        generatePropertyBasedComplexTypeTransferExpressions(
-                          elementType,
-                          Expression.ArrayAccess(original, indexes),
-                          Expression.ArrayAccess(clone, indexes),
-                          variables,
-                          loopExpressions
-                        );
+                        GeneratePropertyBasedComplexTypeTransferExpressions(elementType, Expression.ArrayAccess(original, indexes), Expression.ArrayAccess(clone, indexes), variables, loopExpressions);
                     }
                     else
                     {
-                        // Arrays of reference types need to be cloned by creating a new instance
-                        // of the reference type and then transferring the properties over
-                        ParameterExpression originalElement = Expression.Variable(elementType);
+                        var originalElement = Expression.Variable(elementType);
                         loopVariables.Add(originalElement);
 
-                        loopExpressions.Add(
-                          Expression.Assign(originalElement, Expression.ArrayAccess(original, indexes))
-                        );
+                        loopExpressions.Add(Expression.Assign(originalElement, Expression.ArrayAccess(original, indexes)));
 
                         var nestedVariables = new List<ParameterExpression>();
                         var nestedTransferExpressions = new List<Expression>();
 
-                        // A nested array should be cloned by directly creating a new array (not invoking
-                        // a cloner) since you cannot derive from an array
                         if (elementType.IsArray)
                         {
                             Expression clonedElement;
 
-                            Type nestedElementType = elementType.GetElementType();
+                            var nestedElementType = elementType.GetElementType();
                             if (nestedElementType.IsPrimitive || (nestedElementType == typeof(string)))
                             {
-                                clonedElement = generatePropertyBasedPrimitiveArrayTransferExpressions(
-                                  elementType, originalElement, nestedVariables, nestedTransferExpressions
-                                );
+                                clonedElement = GeneratePropertyBasedPrimitiveArrayTransferExpressions(elementType, originalElement, nestedVariables, nestedTransferExpressions);
                             }
                             else
                             {
-                                clonedElement = generatePropertyBasedComplexArrayTransferExpressions(
-                                  elementType, originalElement, nestedVariables, nestedTransferExpressions
-                                );
+                                clonedElement = GeneratePropertyBasedComplexArrayTransferExpressions(elementType, originalElement, nestedVariables, nestedTransferExpressions);
                             }
-                            nestedTransferExpressions.Add(
-                              Expression.Assign(Expression.ArrayAccess(clone, indexes), clonedElement)
-                            );
+                            nestedTransferExpressions.Add(Expression.Assign(Expression.ArrayAccess(clone, indexes), clonedElement));
                         }
                         else
                         {
-                            // Complex types are cloned by checking their actual, concrete type (properties
-                            // may be typed to an interface or base class) and requesting a cloner for that
-                            // type during runtime
-                            MethodInfo getOrCreateClonerMethodInfo = typeof(ExpressionTreeCloner).GetMethod(
-                              "getOrCreateDeepPropertyBasedCloner",
-                              BindingFlags.NonPublic | BindingFlags.Static
-                            );
-                            MethodInfo getTypeMethodInfo = typeof(object).GetMethod("GetType");
-                            MethodInfo invokeMethodInfo = typeof(Func<object, object>).GetMethod("Invoke");
+                            var getOrCreateClonerMethodInfo = typeof(ExpressionTreeCloner).GetMethod("GetOrCreateDeepPropertyBasedCloner", BindingFlags.NonPublic | BindingFlags.Static);
+                            var getTypeMethodInfo = typeof(object).GetMethod("GetType");
+                            var invokeMethodInfo = typeof(Func<object, object>).GetMethod("Invoke");
 
-                            // Generate expressions to do this:
-                            //   clone.SomeProperty = getOrCreateDeepPropertyBasedCloner(
-                            //     original.SomeProperty.GetType()
-                            //   ).Invoke(original.SomeProperty);
-                            nestedTransferExpressions.Add(
-                              Expression.Assign(
-                                Expression.ArrayAccess(clone, indexes),
-                                Expression.Convert(
-                                  Expression.Call(
-                                    Expression.Call(
-                                      getOrCreateClonerMethodInfo,
-                                      Expression.Call(originalElement, getTypeMethodInfo)
-                                    ),
-                                    invokeMethodInfo,
-                                    originalElement
-                                  ),
-                                  elementType
-                                )
-                              )
-                            );
+                            nestedTransferExpressions.Add(Expression.Assign(Expression.ArrayAccess(clone, indexes), Expression.Convert(Expression.Call(Expression.Call(getOrCreateClonerMethodInfo, Expression.Call(originalElement, getTypeMethodInfo)), invokeMethodInfo, originalElement), elementType)));
                         }
 
-                        // Whether array-in-array of reference-type-in-array, we need a null check before
-                        // doing anything to avoid NullReferenceExceptions for unset members
-                        loopExpressions.Add(
-                          Expression.IfThen(
-                            Expression.NotEqual(originalElement, Expression.Constant(null)),
-                            Expression.Block(
-                              nestedVariables,
-                              nestedTransferExpressions
-                            )
-                          )
-                        );
+                        loopExpressions.Add(Expression.IfThen(Expression.NotEqual(originalElement, Expression.Constant(null)), Expression.Block(nestedVariables, nestedTransferExpressions)));
                     }
                 }
                 else
                 {
-                    // Outer loops of any level just reset the inner loop's indexer and execute
-                    // the inner loop
-                    loopExpressions.Add(
-                      Expression.Assign(indexes[index + 1], Expression.Constant(0))
-                    );
+                    loopExpressions.Add(Expression.Assign(indexes[idx + 1], Expression.Constant(0)));
                     loopExpressions.Add(innerLoop);
                 }
 
-                // Each time we executed the loop instructions, increment the indexer
-                loopExpressions.Add(Expression.PreIncrementAssign(indexes[index]));
+                loopExpressions.Add(Expression.PreIncrementAssign(indexes[idx]));
 
-                // Build the loop using the expressions recorded above
-                innerLoop = Expression.Loop(
-                  Expression.Block(loopVariables, loopExpressions),
-                  labels[index]
-                );
+                innerLoop = Expression.Loop(Expression.Block(loopVariables, loopExpressions), labels[idx]);
             }
 
-            // After the loop builder has finished, the innerLoop variable contains
-            // the entire hierarchy of nested loops, so add this to the clone expressions.
             transferExpressions.Add(innerLoop);
 
             return clone;
         }
+
+        #endregion GeneratePropertyBasedComplexArrayTransferExpressions
+
+        #region GeneratePropertyBasedComplexTypeTransferExpressions
 
         /// <summary>Generates state transfer expressions to copy a complex type</summary>
         /// <param name="clonedType">Complex type that will be cloned</param>
@@ -514,35 +341,18 @@ namespace Wyhb.Joe.Cloning
         /// <param name="clone">Variable expression for the cloned instance</param>
         /// <param name="variables">Receives variables used by the transfer expressions</param>
         /// <param name="transferExpressions">Receives the generated transfer expressions</param>
-        private static void generatePropertyBasedComplexTypeTransferExpressions(
-          Type clonedType, // Actual, concrete type (not declared type)
-          Expression original, // Expected to be an object
-          Expression clone, // As actual, concrete type
-          IList<ParameterExpression> variables,
-          ICollection<Expression> transferExpressions
-        )
+        private static void GeneratePropertyBasedComplexTypeTransferExpressions(Type clonedType, Expression original, Expression clone, IList<ParameterExpression> variables, ICollection<Expression> transferExpressions)
         {
-            // Enumerate all of the type's properties and generate transfer expressions for each
-            PropertyInfo[] propertyInfos = clonedType.GetProperties(
-              BindingFlags.Public | BindingFlags.NonPublic |
-              BindingFlags.Instance | BindingFlags.FlattenHierarchy
-            );
-            for (int index = 0; index < propertyInfos.Length; ++index)
+            var propertyInfos = clonedType.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+            propertyInfos.ToList().ForEach(p =>
             {
-                PropertyInfo propertyInfo = propertyInfos[index];
-                if (propertyInfo.CanRead && propertyInfo.CanWrite)
+                if (p.CanRead && p.CanWrite)
                 {
-                    Type propertyType = propertyInfo.PropertyType;
+                    var propertyType = p.PropertyType;
 
                     if (propertyType.IsPrimitive || (propertyType == typeof(string)))
                     {
-                        // Primitive types and strings can be transferred by simple assignment
-                        transferExpressions.Add(
-                          Expression.Assign(
-                            Expression.Property(clone, propertyInfo),
-                            Expression.Property(original, propertyInfo)
-                          )
-                        );
+                        transferExpressions.Add(Expression.Assign(Expression.Property(clone, p), Expression.Property(original, p)));
                     }
                     else if (propertyType.IsValueType)
                     {
@@ -551,41 +361,24 @@ namespace Wyhb.Joe.Cloning
                         ParameterExpression clonedProperty = Expression.Variable(propertyType);
                         variables.Add(clonedProperty);
 
-                        transferExpressions.Add(
-                          Expression.Assign(
-                            originalProperty, Expression.Property(original, propertyInfo)
-                          )
-                        );
-                        transferExpressions.Add(
-                          Expression.Assign(clonedProperty, Expression.New(propertyType))
-                        );
+                        transferExpressions.Add(Expression.Assign(originalProperty, Expression.Property(original, p)));
+                        transferExpressions.Add(Expression.Assign(clonedProperty, Expression.New(propertyType)));
 
-                        // A nested value type is part of the parent and will have its properties directly
-                        // assigned without boxing, new instance creation or anything like that.
-                        generatePropertyBasedComplexTypeTransferExpressions(
-                          propertyType,
-                          originalProperty,
-                          clonedProperty,
-                          variables,
-                          transferExpressions
-                        );
+                        GeneratePropertyBasedComplexTypeTransferExpressions(propertyType, originalProperty, clonedProperty, variables, transferExpressions);
 
-                        transferExpressions.Add(
-                          Expression.Assign(
-                            Expression.Property(clone, propertyInfo),
-                            clonedProperty
-                          )
-                        );
+                        transferExpressions.Add(Expression.Assign(Expression.Property(clone, p), clonedProperty));
                     }
                     else
                     {
-                        generatePropertyBasedReferenceTypeTransferExpressions(
-                          original, clone, transferExpressions, variables, propertyInfo, propertyType
-                        );
+                        GeneratePropertyBasedReferenceTypeTransferExpressions(original, clone, transferExpressions, variables, p, propertyType);
                     }
                 }
-            }
+            });
         }
+
+        #endregion GeneratePropertyBasedComplexTypeTransferExpressions
+
+        #region GeneratePropertyBasedReferenceTypeTransferExpressions
 
         /// <summary>
         ///   Generates the expressions to transfer a reference type (array or class)
@@ -598,105 +391,44 @@ namespace Wyhb.Joe.Cloning
         /// <param name="variables">Receives variables used by the transfer expressions</param>
         /// <param name="propertyInfo">Reflection informations about the property being cloned</param>
         /// <param name="propertyType">Type of the property being cloned</param>
-        private static void generatePropertyBasedReferenceTypeTransferExpressions(
-          Expression original,
-          Expression clone,
-          ICollection<Expression> transferExpressions,
-          ICollection<ParameterExpression> variables,
-          PropertyInfo propertyInfo,
-          Type propertyType
-        )
+        private static void GeneratePropertyBasedReferenceTypeTransferExpressions(Expression original, Expression clone, ICollection<Expression> transferExpressions, ICollection<ParameterExpression> variables, PropertyInfo propertyInfo, Type propertyType)
         {
-            ParameterExpression originalProperty = Expression.Variable(propertyType);
+            var originalProperty = Expression.Variable(propertyType);
             variables.Add(originalProperty);
 
-            transferExpressions.Add(
-              Expression.Assign(originalProperty, Expression.Property(original, propertyInfo))
-            );
+            transferExpressions.Add(Expression.Assign(originalProperty, Expression.Property(original, propertyInfo)));
 
-            // Reference types and arrays require special care because they can be null,
-            // so gather the transfer expressions in a separate block for the null check
             var propertyTransferExpressions = new List<Expression>();
             var propertyVariables = new List<ParameterExpression>();
 
             if (propertyType.IsArray)
             {
-                // Arrays need to be cloned element-by-element
                 Expression propertyClone;
 
-                Type elementType = propertyType.GetElementType();
+                var elementType = propertyType.GetElementType();
                 if (elementType.IsPrimitive || (elementType == typeof(string)))
                 {
-                    // For primitive arrays, the Array.Clone() method is sufficient
-                    propertyClone = generatePropertyBasedPrimitiveArrayTransferExpressions(
-                      propertyType,
-                      originalProperty,
-                      propertyVariables,
-                      propertyTransferExpressions
-                    );
+                    propertyClone = GeneratePropertyBasedPrimitiveArrayTransferExpressions(propertyType, originalProperty, propertyVariables, propertyTransferExpressions);
                 }
                 else
                 {
-                    // Arrays of complex types require manual cloning
-                    propertyClone = generatePropertyBasedComplexArrayTransferExpressions(
-                      propertyType,
-                      originalProperty,
-                      propertyVariables,
-                      propertyTransferExpressions
-                    );
+                    propertyClone = GeneratePropertyBasedComplexArrayTransferExpressions(propertyType, originalProperty, propertyVariables, propertyTransferExpressions);
                 }
 
-                // Add the assignment to the transfer expressions. The array transfer expression
-                // generator will either have set up a temporary variable to hold the array or
-                // returned the conversion expression straight away
-                propertyTransferExpressions.Add(
-                  Expression.Assign(Expression.Property(clone, propertyInfo), propertyClone)
-                );
+                propertyTransferExpressions.Add(Expression.Assign(Expression.Property(clone, propertyInfo), propertyClone));
             }
             else
             {
-                // Complex types are cloned by checking their actual, concrete type (properties
-                // may be typed to an interface or base class) and requesting a cloner for that
-                // type during runtime
-                MethodInfo getOrCreateClonerMethodInfo = typeof(ExpressionTreeCloner).GetMethod(
-                  "getOrCreateDeepPropertyBasedCloner",
-                  BindingFlags.NonPublic | BindingFlags.Static
-                );
-                MethodInfo getTypeMethodInfo = typeof(object).GetMethod("GetType");
-                MethodInfo invokeMethodInfo = typeof(Func<object, object>).GetMethod("Invoke");
+                var getOrCreateClonerMethodInfo = typeof(ExpressionTreeCloner).GetMethod("GetOrCreateDeepPropertyBasedCloner", BindingFlags.NonPublic | BindingFlags.Static);
+                var getTypeMethodInfo = typeof(object).GetMethod("GetType");
+                var invokeMethodInfo = typeof(Func<object, object>).GetMethod("Invoke");
 
-                // Generate expressions to do this:
-                //   clone.SomeProperty = getOrCreateDeepPropertyBasedCloner(
-                //     original.SomeProperty.GetType()
-                //   ).Invoke(original.SomeProperty);
-                propertyTransferExpressions.Add(
-                  Expression.Assign(
-                    Expression.Property(clone, propertyInfo),
-                    Expression.Convert(
-                      Expression.Call(
-                        Expression.Call(
-                          getOrCreateClonerMethodInfo,
-                          Expression.Call(originalProperty, getTypeMethodInfo)
-                        ),
-                        invokeMethodInfo,
-                        originalProperty
-                      ),
-                      propertyType
-                    )
-                  )
-                );
+                propertyTransferExpressions.Add(Expression.Assign(Expression.Property(clone, propertyInfo), Expression.Convert(Expression.Call(Expression.Call(getOrCreateClonerMethodInfo, Expression.Call(originalProperty, getTypeMethodInfo)), invokeMethodInfo, originalProperty), propertyType)));
             }
 
-            // Wrap up the generated array or complex reference type transfer expressions
-            // in a null check so the property is skipped if it is not holding an instance.
-            transferExpressions.Add(
-              Expression.IfThen(
-                Expression.NotEqual(
-                  originalProperty, Expression.Constant(null)
-                ),
-                Expression.Block(propertyVariables, propertyTransferExpressions)
-              )
-            );
+            transferExpressions.Add(Expression.IfThen(Expression.NotEqual(originalProperty, Expression.Constant(null)), Expression.Block(propertyVariables, propertyTransferExpressions)));
         }
+
+        #endregion GeneratePropertyBasedReferenceTypeTransferExpressions
     }
 }
